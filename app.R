@@ -14,7 +14,7 @@ ui <- dashboardPage(
     title = "CRAN whales"
   ),
   dashboardSidebar(
-    dateInput("date", "Date", value = "2018-05-22"),
+    dateInput("date", "Date", value = Sys.Date() - 2),
     numericInput("count", "Show top N downloaders:", 6)
   ),
   dashboardBody(
