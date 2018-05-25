@@ -9,40 +9,41 @@ library(lubridate)
 
 source("random-names.R")
 
-
-# most_suspicious <- function(df, n = 6) {
-#   keep <- n
-#   most_downloads <- df %>%
-#     count(ip_id) %>%
-#     arrange(desc(n)) %>%
-#     head(keep)
-#   df %>% filter(ip_id %in% most_downloads$ip_id)
-# }
-
-
-
 ui <- dashboardPage(
   dashboardHeader(
-    title = "CRAN mirror abusers"
+    title = "CRAN whales"
   ),
   dashboardSidebar(
     dateInput("date", "Date", value = "2018-05-22"),
-    actionButton("go", "Go")
+    numericInput("count", "Show top N downloaders:", 6)
   ),
   dashboardBody(
-    numericInput("count", "Show top N downloaders:", 6),
     fluidRow(
       tabBox(width = 12,
-        title = "Top downloaders of the day",
-        tabPanel("Total downloads",
+        tabPanel("All traffic",
+          fluidRow(
+            valueBoxOutput("total_size", width = 4),
+            valueBoxOutput("total_count", width = 4),
+            # valueBoxOutput("total_uniques", width = 4),
+            valueBoxOutput("total_downloaders", width = 4)
+          ),
+          plotOutput("all_hour")
+        ),
+        tabPanel("Biggest whales",
           plotOutput("downloaders")
         ),
-        tabPanel("Downloads per hour",
-          plotOutput("downloaders_time")
+        tabPanel("Whales by hour",
+          plotOutput("downloaders_hour")
         ),
         tabPanel("Detail view",
           selectInput("detail_ip_name", "Downloader name", character(0)),
-          plotOutput("detail")
+          fluidRow(
+            valueBoxOutput("detail_size"),
+            valueBoxOutput("detail_count"),
+            valueBoxOutput("detail_uniques")
+          ),
+          plotOutput("detail", brush = brushOpts("detail_brush", resetOnNew = TRUE)),
+          DT::dataTableOutput("detail_table")
         )
       )
     )
@@ -50,7 +51,7 @@ ui <- dashboardPage(
 )
 
 server <- function(input, output, session) {
-  data <- eventReactive(input$go, ignoreNULL = FALSE, {
+  data <- eventReactive(input$date, ignoreNULL = FALSE, {
     date <- input$date
     validate(need(grepl("^\\d{4}-\\d{2}-\\d{2}", date), "Invalid date"))
     
@@ -74,28 +75,76 @@ server <- function(input, output, session) {
       
       setProgress(message = "Parsing data...")
       readr::read_csv(path, col_types = cols(
-        date = col_date(format = ""),
+        date = col_skip(),
         time = col_time(format = ""),
         size = col_integer(),
-        r_version = col_character(),
-        r_arch = col_character(),
-        r_os = col_character(),
+        r_version = col_skip(),
+        r_arch = col_skip(),
+        r_os = col_skip(),
         package = col_character(),
-        version = col_character(),
+        version = col_skip(),
         country = col_character(),
         ip_id = col_integer()
-      ))
+      ), progress = FALSE)
       
     })
   })
   
+  output$total_size <- renderValueBox({
+    valueBox(
+      gdata::humanReadable(sum(as.numeric(data()$size))),
+      "bandwidth consumed"
+    )
+  })
+  
+  output$total_count <- renderValueBox({
+    valueBox(
+      format(nrow(data()), big.mark = ","),
+      "files downloaded"
+    )
+  })
+  
+  output$total_uniques <- renderValueBox({
+    valueBox(
+      format(length(unique(data()$package)), big.mark = ","),
+      "unique packages"
+    )
+  })
+  
+  output$total_downloaders <- renderValueBox({
+    valueBox(
+      format(length(unique(data()$ip_id)), big.mark = ","),
+      "unique downloaders"
+    )
+  })
+  
+  output$all_hour <- renderPlot({
+    whale_ip <- suspicious_downloaders()$ip_id
+    
+    data() %>%
+      mutate(
+        time = hms::trunc_hms(time, 60*60),
+        whale = ip_id %in% whale_ip
+      ) %>%
+      ggplot(aes(time, fill = whale)) +
+      geom_bar() +
+      scale_fill_manual(values = c("#666666", "#88FF99"),
+        labels = c("no", "yes"))
+  })
+  
   suspicious_downloaders <- reactive({
+    validate(
+      need(is.numeric(input$count), "Invalid top downloader count"),
+      need(input$count > 0, "Too few downloaders"),
+      need(input$count <= 25, "Too many downloaders; 25 or fewer please")
+    )
     data() %>%
       count(ip_id, country) %>%
       arrange(desc(n)) %>%
       head(input$count) %>%
       mutate(ip_name = factor(ip_id, levels = ip_id,
-        labels = glue("{random_name(1000, isolate(input$date))[seq_along(ip_id)]} [{country}]")))
+        labels = glue("{random_name(1000, isolate(input$date))[seq_along(ip_id)]} [{country}]"))) %>%
+      select(-country)
   })
   
   observeEvent(try(silent=TRUE, suspicious_downloaders()), {
@@ -127,23 +176,66 @@ server <- function(input, output, session) {
       ylab("Downloads on this day")
   })
   
-  output$downloaders_time <- renderPlot({
+  output$downloaders_hour <- renderPlot({
     suspicious_downloads() %>%
       mutate(time = hms::trunc_hms(time, 60*60)) %>%
       ggplot(aes(time)) + geom_bar() +
       facet_wrap(~ip_name)
   })
   
-  output$detail <- renderPlot({
+  detail_downloads <- reactive({
     req(input$detail_ip_name, nzchar(input$detail_ip_name))
     suspicious_downloads() %>%
       filter(ip_name == input$detail_ip_name) %>%
       arrange(time) %>%
-      mutate(package = factor(package, levels = rev(unique(package)), ordered = TRUE)) %>%
-      ggplot(aes(time, package)) +
+      mutate(package = factor(package, levels = rev(unique(package)), ordered = TRUE))
+  })
+  
+  output$detail_size <- renderValueBox({
+    valueBox(
+      gdata::humanReadable(sum(as.numeric(detail_downloads()$size))),
+      "bandwidth consumed"
+    )
+  })
+  
+  output$detail_count <- renderValueBox({
+    valueBox(
+      format(nrow(detail_downloads()), big.mark = ","),
+      "files downloaded"
+    )
+  })
+  
+  output$detail_uniques <- renderValueBox({
+    valueBox(
+      format(length(levels(detail_downloads()$package)), big.mark = ","),
+      "unique packages"
+    )
+  })
+  
+  output$detail <- renderPlot({
+
+    validate(need(input$detail_ip_name, "Select a downloader from the list above"))    
+    pkg <- levels(detail_downloads()$package)
+    
+    detail_downloads() %>% {
+      ggplot(., aes(time, package)) +
       geom_point() +
       scale_x_time(breaks = seq(hms::hms(0,0,0), by = 60*60*3, length.out = 9),
-        limits = c(hms::hms(0,0,0), hms::hms(0,0,24)))
+        limits = c(hms::hms(0,0,0), hms::hms(0,0,24))) +
+      scale_y_discrete(breaks = pkg[seq(from = 1, to = length(pkg), length.out = 50) %>% as.integer() %>% c(1, length(pkg)) %>% unique()]) +
+      ylab(glue("package ({length(pkg)} unique)"))
+    }
+  })
+  
+  output$detail_table <- DT::renderDataTable({
+    req(input$detail_brush)
+    detail_downloads() %>%
+      brushedPoints(input$detail_brush) %>%
+      mutate(
+        time = as.character(time),
+        size = gdata::humanReadable(size)
+      ) %>%
+      select(-ip_id, -ip_name, -country)
   })
 }
 
