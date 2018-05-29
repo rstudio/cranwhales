@@ -18,15 +18,17 @@ detailView <- function(input, output, session, whales, whale_downloads) {
 
   # When whales() changes, update the selectInput with their names
   observeEvent(try(silent=TRUE, whales()), {
-    tryCatch({
-      updateSelectInput(session, "detail_ip_name",
-        choices = whales()$ip_name,
-        selected = if (input$detail_ip_name %in% whales()$ip_name)
-          input$detail_ip_name
-        else
-          character(0))
-      freezeReactiveValue(input, "detail_ip_name")
-    }, error = function(e) {})
+    choices <- tryCatch(
+      whales()$ip_name,
+      error = function(err) { character(0) }
+    )
+    updateSelectInput(session, "detail_ip_name",
+      choices = choices,
+      selected = if (input$detail_ip_name %in% choices)
+        input$detail_ip_name
+      else
+        character(0))
+    freezeReactiveValue(input, "detail_ip_name")
   })
   
   detail_downloads <- reactive({
