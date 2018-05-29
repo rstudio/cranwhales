@@ -98,7 +98,7 @@ server <- function(input, output, session) {
       arrange(desc(n)) %>%
       head(input$count) %>%
       mutate(ip_name = factor(ip_id, levels = ip_id,
-        labels = glue("{random_name(1000, isolate(input$date))[seq_along(ip_id)]} [{country}]"))) %>%
+        labels = glue("{random_name(length(ip_id), input$date)} [{country}]"))) %>%
       select(-country)
   })
   

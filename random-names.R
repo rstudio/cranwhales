@@ -3,8 +3,11 @@ random_name <- local({
   animals <- readLines("animals.txt")
   
   function(n = 1, date = Sys.Date()) {
-    withr::with_seed(as.integer(date) * n,
-      paste0(sample(adjectives, n, replace = TRUE), "_", sample(animals, n, replace = TRUE))
-    )
+    withr::with_seed(as.integer(date), {
+      x <- sample(length(adjectives) * length(animals), n * 2, replace = TRUE)
+      adj <- x[seq_along(x) %% 2 == 1] %% length(adjectives) + 1
+      ani <- x[seq_along(x) %% 2 == 0] %% length(animals) + 1
+      paste0(adjectives[adj], "_", animals[ani])
+    })
   }
 })
