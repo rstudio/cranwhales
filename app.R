@@ -30,10 +30,10 @@ ui <- dashboardPage(
           plotOutput("all_hour")
         ),
         tabPanel("Biggest whales",
-          plotOutput("downloaders")
+          plotOutput("downloaders", height = 500)
         ),
         tabPanel("Whales by hour",
-          plotOutput("downloaders_hour")
+          plotOutput("downloaders_hour", height = 500)
         ),
         tabPanel("Detail view",
           selectInput("detail_ip_name", "Downloader name", character(0)),
@@ -126,10 +126,14 @@ server <- function(input, output, session) {
         time = hms::trunc_hms(time, 60*60),
         whale = ip_id %in% whale_ip
       ) %>%
-      ggplot(aes(time, fill = whale)) +
-      geom_bar() +
+      count(time, whale) %>%
+      ggplot(aes(time, n, fill = whale)) +
+      geom_bar(stat = "identity") +
       scale_fill_manual(values = c("#666666", "#88FF99"),
-        labels = c("no", "yes"))
+        labels = c("no", "yes")) +
+      ylab("Downloads") +
+      xlab("Hour") +
+      scale_y_continuous(labels = scales::comma)
   })
   
   suspicious_downloaders <- reactive({
