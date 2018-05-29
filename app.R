@@ -24,7 +24,6 @@ ui <- dashboardPage(
           fluidRow(
             valueBoxOutput("total_size", width = 4),
             valueBoxOutput("total_count", width = 4),
-            # valueBoxOutput("total_uniques", width = 4),
             valueBoxOutput("total_downloaders", width = 4)
           ),
           plotOutput("all_hour")
@@ -53,9 +52,9 @@ ui <- dashboardPage(
 server <- function(input, output, session) {
   data <- eventReactive(input$date, ignoreNULL = FALSE, {
     date <- input$date
-    validate(need(grepl("^\\d{4}-\\d{2}-\\d{2}", date), "Invalid date"))
+    validate(need(is.Date(date), "Invalid date"))
     
-    year <- substr(date, 1, 4)
+    year <- lubridate::year(date)
     
     url <- glue("http://cran-logs.rstudio.com/{year}/{date}.csv.gz")
     path <- file.path("data_cache", paste0(date, ".csv.gz"))
