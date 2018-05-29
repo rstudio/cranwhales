@@ -3,9 +3,11 @@ library(shinydashboard)
 library(readr)
 library(dplyr)
 library(ggplot2)
+library(DT)
 library(readr)
 library(glue)
 library(lubridate)
+library(gdata)  # for gdata::humanReadable
 
 source("random-names.R")
 
@@ -42,7 +44,7 @@ ui <- dashboardPage(
             valueBoxOutput("detail_uniques")
           ),
           plotOutput("detail", brush = brushOpts("detail_brush", resetOnNew = TRUE)),
-          DT::dataTableOutput("detail_table")
+          DTOutput("detail_table")
         )
       )
     )
@@ -50,6 +52,9 @@ ui <- dashboardPage(
 )
 
 server <- function(input, output, session) {
+  
+  # Downloads data from cran-logs.rstudio.com, and parses it.
+  # Successful downloads are stored in the data_cache dir.
   data <- eventReactive(input$date, ignoreNULL = FALSE, {
     date <- input$date
     validate(need(is.Date(date), "Invalid date"))
@@ -61,6 +66,9 @@ server <- function(input, output, session) {
     
     withProgress(value = NULL, {
       
+      # Download to a temporary file path, then rename to the real
+      # path when the download is complete. We do this so other
+      # processes/sessions don't use partially downloaded files.
       if (!file.exists(path)) {
         tmppath <- paste0(path, "-", Sys.getpid())
         setProgress(message = "Downloading data...")
@@ -75,7 +83,7 @@ server <- function(input, output, session) {
       setProgress(message = "Parsing data...")
       readr::read_csv(path, col_types = cols(
         date = col_skip(),
-        time = col_time(format = ""),
+        time = col_time(),
         size = col_integer(),
         r_version = col_skip(),
         r_arch = col_skip(),
@@ -91,7 +99,7 @@ server <- function(input, output, session) {
   
   output$total_size <- renderValueBox({
     valueBox(
-      gdata::humanReadable(sum(as.numeric(data()$size))),
+      humanReadable(sum(as.numeric(data()$size))),
       "bandwidth consumed"
     )
   })
@@ -135,6 +143,12 @@ server <- function(input, output, session) {
       scale_y_continuous(labels = scales::comma)
   })
   
+  # Returns a data frame of just the top `input$count` downloaders of the day,
+  # with the columns: 
+  # ip_id - an arbitrary integer that's used in place of the real IP address
+  # ip_name - the same as ip_id but using easier-to-remember labels like
+  #     "quant_weasel" or "nutritious_lovebird".
+  # n - the number of downloads performed by this IP on this day
   suspicious_downloaders <- reactive({
     validate(
       need(is.numeric(input$count), "Invalid top downloader count"),
@@ -150,6 +164,8 @@ server <- function(input, output, session) {
       select(-country)
   })
   
+  # When suspicious_downloaders() changes, update the selectInput with their
+  # names
   observeEvent(try(silent=TRUE, suspicious_downloaders()), {
     tryCatch({
       updateSelectInput(session, "detail_ip_name",
@@ -162,14 +178,12 @@ server <- function(input, output, session) {
     }, error = function(e) {})
   })
   
+  # data(), filtered down to the downloads that are by the top `input$count`
+  # downloaders
   suspicious_downloads <- reactive({
     data() %>%
       inner_join(suspicious_downloaders(), "ip_id") %>%
       select(-n)
-  })
-  
-  output$downloaders <- renderTable({
-    suspicious_downloaders() %>% head()
   })
   
   output$downloaders <- renderPlot({
@@ -196,7 +210,7 @@ server <- function(input, output, session) {
   
   output$detail_size <- renderValueBox({
     valueBox(
-      gdata::humanReadable(sum(as.numeric(detail_downloads()$size))),
+      humanReadable(sum(as.numeric(detail_downloads()$size))),
       "bandwidth consumed"
     )
   })
@@ -215,6 +229,7 @@ server <- function(input, output, session) {
     )
   })
   
+  # Show every single download from the selected downloader
   output$detail <- renderPlot({
 
     validate(need(input$detail_ip_name, "Select a downloader from the list above"))    
@@ -230,13 +245,14 @@ server <- function(input, output, session) {
     }
   })
   
-  output$detail_table <- DT::renderDataTable({
+  # Show the downloads that are brushed on output$detail
+  output$detail_table <- renderDT({
     req(input$detail_brush)
     detail_downloads() %>%
       brushedPoints(input$detail_brush) %>%
       mutate(
         time = as.character(time),
-        size = gdata::humanReadable(size)
+        size = humanReadable(size)
       ) %>%
       select(-ip_id, -ip_name, -country)
   })
