@@ -7,6 +7,7 @@ library(DT)
 library(glue)
 library(lubridate)
 library(gdata)  # for gdata::humanReadable
+library(magrittr)  # for extract2
 
 library(promises)
 library(future)
@@ -81,8 +82,36 @@ server <- function(input, output, session) {
       }
     }) %...>%
       { p$set(message = "Parsing data...") } %...>%
-      { future(read_csv(path, col_types = "Dti---c-ci", progress = FALSE) %>%
-          filter(!is.na(package))) } %>%
+      { future({
+        df <- read_csv(path, col_types = "Dti---c-ci", progress = FALSE) %>%
+          filter(!is.na(package))
+        whale_ip <- df %>%
+          count(ip_id) %>%
+          arrange(desc(n)) %>%
+          head(25) %>%
+          pull(ip_id)
+        
+        whale_data <- df %>% filter(ip_id %in% whale_ip)
+        
+        all_data <- df %>%
+          mutate(
+            time = hms::trunc_hms(time, 60*60),
+            whale_class = match(ip_id, whale_ip)
+          ) %>%
+          count(time, whale_class)
+        
+        list(
+          whale_data = whale_data,
+          all_data = all_data,
+          stats = list(
+            total_size = sum(as.numeric(df$size)),
+            total_count = nrow(df),
+            total_uniques = length(unique(df$package)),
+            total_downloaders = length(unique(df$ip_id))
+          )
+        )
+        
+      }) } %>%
       finally(~p$close())
   })
   
@@ -99,6 +128,7 @@ server <- function(input, output, session) {
       need(input$count <= 25, "Too many downloaders; 25 or fewer please")
     )
     data() %...>%
+      extract2("whale_data") %...>%
       count(ip_id, country) %...>%
       arrange(desc(n)) %...>%
       head(input$count) %...>%
@@ -112,7 +142,7 @@ server <- function(input, output, session) {
   whale_downloads <- reactive({
     promise_all(data = data(), whales = whales()) %...>%
       with({
-        data %>%
+        data$whale_data %>%
           inner_join(whales, "ip_id") %>%
           select(-n)
       })
@@ -125,57 +155,53 @@ server <- function(input, output, session) {
   
   output$total_size <- renderValueBox({
     data() %...>%
-      pull(size) %...>%
-      as.numeric() %...>%  # Cast from integer to numeric to avoid overflow warning
-      sum() %...>%
+      extract2("stats") %...>%
+      extract2("total_size") %...>%
       humanReadable() %...>%
       valueBox("bandwidth consumed")
   })
   
   output$total_count <- renderValueBox({
     data() %...>%
-      nrow() %...>%
+      extract2("stats") %...>%
+      extract2("total_count") %...>%
       format(big.mark = ",") %...>%
       valueBox("files downloaded")
   })
   
   output$total_uniques <- renderValueBox({
     data() %...>%
-      pull(package) %...>%
-      unique() %...>%
-      length() %...>%
+      extract2("stats") %...>%
+      extract2("total_uniques") %...>%
       format(big.mark = ",") %...>%
       valueBox("unique packages")
   })
   
   output$total_downloaders <- renderValueBox({
     data() %...>%
-      pull(ip_id) %...>%
-      unique() %...>%
-      length() %...>%
+      extract2("stats") %...>%
+      extract2("total_downloaders") %...>%
       format(big.mark = ",") %...>%
       valueBox("unique downloaders")
   })
   
   output$all_hour <- renderPlot({
-    promise_all(data = data(), whales = whales()) %...>%
-      with({
-        whale_ip <- whales$ip_id
-        
-        data %>%
-          mutate(
-            time = hms::trunc_hms(time, 60*60),
-            is_whale = ip_id %in% whale_ip
-          ) %>%
-          count(time, is_whale) %>%
-          ggplot(aes(time, n, fill = is_whale)) +
+    data() %...>%
+      extract2("all_data") %...>%
+      mutate(
+        is_whale = !is.na(whale_class) & whale_class <= input$count
+      ) %...>%
+      group_by(time, is_whale) %...>%
+      summarise(n = sum(n)) %...>%
+      ungroup() %...>% {
+        ggplot(., aes(time, n, fill = is_whale)) +
           geom_bar(stat = "identity") +
           scale_fill_manual(values = c("#666666", "#88FF99"),
             labels = c("no", "yes")) +
           ylab("Downloads") +
           xlab("Hour") +
           scale_y_continuous(labels = scales::comma)
-      })
+      }
   })
   
   #### "Biggest whales" tab -------------------------------------
