@@ -8,6 +8,28 @@ This is the **synchronous** version. The asynchronous version is [here](https://
 
 To learn more about asynchronous programming in R and Shiny, see https://rstudio.github.io/promises/.
 
+## Installation
+
+To run the app yourself, you'll need Shiny v1.1 or later. If you have an older version or aren't sure, you can install Shiny from CRAN:
+
+```r
+install.packages("shiny")
+```
+
+You'll also need a number of other packages from CRAN:
+
+```r
+install.packages(c("readr", "dplyr", "ggplot2", "DT", "glue", "lubridate", "gdata"))
+```
+
+Finally, as of this writing, you'll also need to install two packages' async-compatible branches from GitHub:
+
+```r
+devtools::install_github(c("ramnathv/htmlwidgets@async", "rstudio/shinydashboard@async", "rstudio/DT@async"))
+```
+
+Now you're ready to run this app by calling `shiny::runApp()`.
+
 ## About the app
 
 This application lets you view the downloads from RStudio's CRAN mirrors on any given day. It lets you specifically focus on the top downloaders ("whales"), who download tens of thousands of packages, usually with pretty curious access patterns.
