@@ -155,10 +155,10 @@ server <- function(input, output, session) {
     data() %>%
       mutate(
         time = hms::trunc_hms(time, 60*60),
-        whale = ip_id %in% whale_ip
+        is_whale = ip_id %in% whale_ip
       ) %>%
-      count(time, whale) %>%
-      ggplot(aes(time, n, fill = whale)) +
+      count(time, is_whale) %>%
+      ggplot(aes(time, n, fill = is_whale)) +
       geom_bar(stat = "identity") +
       scale_fill_manual(values = c("#666666", "#88FF99"),
         labels = c("no", "yes")) +
