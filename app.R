@@ -8,6 +8,11 @@ library(glue)
 library(lubridate)
 library(gdata)  # for gdata::humanReadable
 
+library(promises)
+library(future)
+# Leave one core for Shiny itself
+plan(multisession(workers = availableCores() - 1))
+
 source("random-names.R")
 source("modules/detail.R")
 
@@ -59,14 +64,14 @@ server <- function(input, output, session) {
     url <- glue("http://cran-logs.rstudio.com/{year}/{date}.csv.gz")
     path <- file.path("data_cache", paste0(date, ".csv.gz"))
     
-    withProgress(value = NULL, {
-      
+    p <- Progress$new()
+    p$set(value = NULL, message = "Downloading data...")
+    future({
       # Download to a temporary file path, then rename to the real
       # path when the download is complete. We do this so other
       # processes/sessions don't use partially downloaded files.
       if (!file.exists(path)) {
         tmppath <- paste0(path, "-", Sys.getpid())
-        setProgress(message = "Downloading data...")
         download.file(url, tmppath)
         if (!file.exists(path)) {
           file.rename(tmppath, path)
@@ -74,11 +79,10 @@ server <- function(input, output, session) {
           file.remove(tmppath)
         }
       }
-      
-      setProgress(message = "Parsing data...")
-      read_csv(path, col_types = "Dti---c-ci", progress = FALSE)
-      
-    })
+    }) %...>%
+      { p$set(message = "Parsing data...") } %...>%
+      { future(read_csv(path, col_types = "Dti---c-ci", progress = FALSE)) } %>%
+      finally(~p$close())
   })
   
   # Returns a data frame of just the top `input$count` downloaders of the day,
@@ -93,21 +97,24 @@ server <- function(input, output, session) {
       need(input$count > 0, "Too few downloaders"),
       need(input$count <= 25, "Too many downloaders; 25 or fewer please")
     )
-    data() %>%
-      count(ip_id, country) %>%
-      arrange(desc(n)) %>%
-      head(input$count) %>%
+    data() %...>%
+      count(ip_id, country) %...>%
+      arrange(desc(n)) %...>%
+      head(input$count) %...>%
       mutate(ip_name = factor(ip_id, levels = ip_id,
-        labels = glue("{random_name(length(ip_id), input$date)} [{country}]"))) %>%
+        labels = glue("{random_name(length(ip_id), input$date)} [{country}]"))) %...>%
       select(-country)
   })
   
   # data(), filtered down to the downloads that are by the top `input$count`
   # downloaders
   whale_downloads <- reactive({
-    data() %>%
-      inner_join(whales(), "ip_id") %>%
-      select(-n)
+    promise_all(data = data(), whales = whales()) %...>%
+      with({
+        data %>%
+          inner_join(whales, "ip_id") %>%
+          select(-n)
+      })
   })
 
   
@@ -116,77 +123,82 @@ server <- function(input, output, session) {
   #### "All traffic" tab ----------------------------------------
   
   output$total_size <- renderValueBox({
-    data() %>%
-      pull(size) %>%
-      as.numeric() %>%  # Cast from integer to numeric to avoid overflow warning
-      sum() %>%
-      humanReadable() %>%
+    data() %...>%
+      pull(size) %...>%
+      as.numeric() %...>%  # Cast from integer to numeric to avoid overflow warning
+      sum() %...>%
+      humanReadable() %...>%
       valueBox("bandwidth consumed")
   })
   
   output$total_count <- renderValueBox({
-    data() %>%
-      nrow() %>%
-      format(big.mark = ",") %>%
+    data() %...>%
+      nrow() %...>%
+      format(big.mark = ",") %...>%
       valueBox("files downloaded")
   })
   
   output$total_uniques <- renderValueBox({
-    data() %>%
-      pull(package) %>%
-      unique() %>%
-      length() %>%
-      format(big.mark = ",") %>%
+    data() %...>%
+      pull(package) %...>%
+      unique() %...>%
+      length() %...>%
+      format(big.mark = ",") %...>%
       valueBox("unique packages")
   })
   
   output$total_downloaders <- renderValueBox({
-    data() %>%
-      pull(ip_id) %>%
-      unique() %>%
-      length() %>%
-      format(big.mark = ",") %>%
+    data() %...>%
+      pull(ip_id) %...>%
+      unique() %...>%
+      length() %...>%
+      format(big.mark = ",") %...>%
       valueBox("unique downloaders")
   })
   
   output$all_hour <- renderPlot({
-    whale_ip <- whales()$ip_id
-    
-    data() %>%
-      mutate(
-        time = hms::trunc_hms(time, 60*60),
-        is_whale = ip_id %in% whale_ip
-      ) %>%
-      count(time, is_whale) %>%
-      ggplot(aes(time, n, fill = is_whale)) +
-      geom_bar(stat = "identity") +
-      scale_fill_manual(values = c("#666666", "#88FF99"),
-        labels = c("no", "yes")) +
-      ylab("Downloads") +
-      xlab("Hour") +
-      scale_y_continuous(labels = scales::comma)
+    promise_all(data = data(), whales = whales()) %...>%
+      with({
+        whale_ip <- whales$ip_id
+        
+        data %>%
+          mutate(
+            time = hms::trunc_hms(time, 60*60),
+            is_whale = ip_id %in% whale_ip
+          ) %>%
+          count(time, is_whale) %>%
+          ggplot(aes(time, n, fill = is_whale)) +
+          geom_bar(stat = "identity") +
+          scale_fill_manual(values = c("#666666", "#88FF99"),
+            labels = c("no", "yes")) +
+          ylab("Downloads") +
+          xlab("Hour") +
+          scale_y_continuous(labels = scales::comma)
+      })
   })
   
   #### "Biggest whales" tab -------------------------------------
   
   output$downloaders <- renderPlot({
-    whales() %>%
-      ggplot(aes(ip_name, n)) +
+    whales() %...>% {
+      ggplot(., aes(ip_name, n)) +
       geom_bar(stat = "identity") +
       ylab("Downloads on this day")
+    }
   })
   
   #### "Whales by hour" tab -------------------------------------
   
   output$downloaders_hour <- renderPlot({
-    whale_downloads() %>%
-      mutate(time = hms::trunc_hms(time, 60*60)) %>%
-      count(time, ip_name) %>%
-      ggplot(aes(time, n)) +
-      geom_bar(stat = "identity") +
-      facet_wrap(~ip_name) +
-      ylab("Downloads") +
-      xlab("Hour")
+    whale_downloads() %...>%
+      mutate(time = hms::trunc_hms(time, 60*60)) %...>%
+      count(time, ip_name) %...>% {
+        ggplot(., aes(time, n)) +
+          geom_bar(stat = "identity") +
+          facet_wrap(~ip_name) +
+          ylab("Downloads") +
+          xlab("Hour")
+      }
   })
   
   #### "Detail view" tab ----------------------------------------
