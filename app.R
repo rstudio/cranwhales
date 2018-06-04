@@ -76,8 +76,32 @@ server <- function(input, output, session) {
       }
       
       setProgress(message = "Parsing data...")
-      read_csv(path, col_types = "Dti---c-ci", progress = FALSE)
-      
+      df <- read_csv(path, col_types = "Dti---c-ci", progress = FALSE)
+      whale_ip <- df %>%
+        count(ip_id) %>%
+        arrange(desc(n)) %>%
+        head(25) %>%
+        pull(ip_id)
+
+      whale_data <- df %>% filter(ip_id %in% whale_ip)
+
+      all_data <- df %>%
+        mutate(
+          time = hms::trunc_hms(time, 60*60),
+          whale_class = match(ip_id, whale_ip)
+        ) %>%
+        count(time, whale_class)
+
+      list(
+        whale_data = whale_data,
+        all_data = all_data,
+        stats = list(
+          total_size = sum(as.numeric(df$size)),
+          total_count = nrow(df),
+          total_uniques = length(unique(df$package)),
+          total_downloaders = length(unique(df$ip_id))
+        )
+      )
     })
   })
   
@@ -93,7 +117,7 @@ server <- function(input, output, session) {
       need(input$count > 0, "Too few downloaders"),
       need(input$count <= 25, "Too many downloaders; 25 or fewer please")
     )
-    data() %>%
+    data()$whale_data %>%
       count(ip_id, country) %>%
       arrange(desc(n)) %>%
       head(input$count) %>%
@@ -105,7 +129,7 @@ server <- function(input, output, session) {
   # data(), filtered down to the downloads that are by the top `input$count`
   # downloaders
   whale_downloads <- reactive({
-    data() %>%
+    data()$whale_data %>%
       inner_join(whales(), "ip_id") %>%
       select(-n)
   })
@@ -116,35 +140,25 @@ server <- function(input, output, session) {
   #### "All traffic" tab ----------------------------------------
   
   output$total_size <- renderValueBox({
-    data() %>%
-      pull(size) %>%
-      as.numeric() %>%  # Cast from integer to numeric to avoid overflow warning
-      sum() %>%
+    data()$stats$total_size %>%
       humanReadable() %>%
       valueBox("bandwidth consumed")
   })
   
   output$total_count <- renderValueBox({
-    data() %>%
-      nrow() %>%
+    data()$stats$total_count %>%
       format(big.mark = ",") %>%
       valueBox("files downloaded")
   })
   
   output$total_uniques <- renderValueBox({
-    data() %>%
-      pull(package) %>%
-      unique() %>%
-      length() %>%
+    data()$stats$total_uniques %>%
       format(big.mark = ",") %>%
       valueBox("unique packages")
   })
   
   output$total_downloaders <- renderValueBox({
-    data() %>%
-      pull(ip_id) %>%
-      unique() %>%
-      length() %>%
+    data()$stats$total_downloaders %>%
       format(big.mark = ",") %>%
       valueBox("unique downloaders")
   })
@@ -152,12 +166,13 @@ server <- function(input, output, session) {
   output$all_hour <- renderPlot({
     whale_ip <- whales()$ip_id
     
-    data() %>%
+    data()$all_data %>%
       mutate(
-        time = hms::trunc_hms(time, 60*60),
-        is_whale = ip_id %in% whale_ip
+        is_whale = !is.na(whale_class) & whale_class <= input$count
       ) %>%
-      count(time, is_whale) %>%
+      group_by(time, is_whale) %>%
+      summarise(n = sum(n)) %>%
+      ungroup() %>%
       ggplot(aes(time, n, fill = is_whale)) +
       geom_bar(stat = "identity") +
       scale_fill_manual(values = c("#666666", "#88FF99"),
