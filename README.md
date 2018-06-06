@@ -22,10 +22,10 @@ You'll also need a number of other packages from CRAN:
 install.packages(c("readr", "dplyr", "ggplot2", "DT", "glue", "lubridate", "gdata"))
 ```
 
-Finally, as of this writing, you'll also need to install two packages' async-compatible branches from GitHub:
+Finally, as of this writing, you'll also need to install these packages' async-compatible branches from GitHub:
 
 ```r
-devtools::install_github(c("ramnathv/htmlwidgets@async", "rstudio/shinydashboard@async", "rstudio/DT@async"))
+devtools::install_github(c("ramnathv/htmlwidgets", "rstudio/shinydashboard@async", "rstudio/DT@async"))
 ```
 
 Now you're ready to run this app by calling `shiny::runApp()`.
