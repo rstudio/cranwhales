@@ -4,7 +4,7 @@ This is a Shiny example application, meant to demonstrate how to convert synchro
 
 See the [live demo](https://jcheng.shinyapps.io/cranwhales/).
 
-This is the **synchronous** version. The asynchronous version is [here](https://github.com/jcheng5/cranwhales/tree/async). You can see the differences [here](https://github.com/jcheng5/cranwhales/compare/sync...async?diff=split).
+This is the **synchronous** version. The (naive) asynchronous version is [here](https://github.com/jcheng5/cranwhales/tree/async) ([diff](https://github.com/jcheng5/cranwhales/compare/sync...async?diff=split)). The optimized asynchronous version is [here](https://github.com/rstudio/cranwhales/tree/async2) ([diff](https://github.com/jcheng5/cranwhales/compare/async...async2?diff=split)).
 
 To learn more about asynchronous programming in R and Shiny, see https://rstudio.github.io/promises/.
 
