@@ -23,7 +23,7 @@ install.packages(c("readr", "dplyr", "ggplot2", "DT", "glue", "lubridate", "gdat
 Finally, as of this writing, you'll also need to install these packages' async-compatible branches from GitHub:
 
 ```r
-devtools::install_github(c("ramnathv/htmlwidgets", "rstudio/shinydashboard@async", "rstudio/DT@async"))
+devtools::install_github(c("ramnathv/htmlwidgets", "rstudio/shinydashboard"))
 ```
 
 Now you're ready to run this app by calling `shiny::runApp()`.
