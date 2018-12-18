@@ -1,7 +1,7 @@
 detailViewUI <- function(id) {
   ns <- NS(id)
   tagList(
-    selectInput(ns("detail_ip_name"), "Downloader name", character(0)),
+    uiOutput(ns("detail_ip_name_container")),
     fluidRow(
       valueBoxOutput(ns("detail_size")),
       valueBoxOutput(ns("detail_count")),
@@ -14,26 +14,22 @@ detailViewUI <- function(id) {
   )
 }
 
-detailView <- function(input, output, session, whales, whale_downloads) {
+detailView <- function(input, output, session, date, nwhales, whales, whale_downloads) {
 
-  # When whales() changes, update the selectInput with their names.
-  # The gross try(... %>% catch(~{})) is necessary to swallow both sync and
-  # async errors, because either will cause the session to be immediately and
-  # unceremoniously ended. Something to improve in Shiny v1.2.
-  observeEvent(try(whales() %>% catch(~{})), {
+  output$detail_ip_name_container <- renderUI({
     whales() %...>%
       pull(ip_name) %...!%
       { character(0) } %...>%
-      {
-        updateSelectInput(session, "detail_ip_name",
-          choices = .,
-          selected = if (input$detail_ip_name %in% .)
-            input$detail_ip_name
-          else
-            character(0))
+      selectInput(
+        session$ns("detail_ip_name"), "Downloader name", choices = .,
+        selected = if (!is.null(input$detail_ip_name) && input$detail_ip_name %in% .)
+          input$detail_ip_name
+        else
+          character(0)
+      ) %...T>% {
         freezeReactiveValue(input, "detail_ip_name")
       }
-  })
+  }) %>% cacheOutput(cacheKeyExpr = { c(date(), nwhales()) })
   
   detail_downloads <- reactive({
     req(input$detail_ip_name, nzchar(input$detail_ip_name))
@@ -50,14 +46,14 @@ detailView <- function(input, output, session, whales, whale_downloads) {
       sum() %...>% 
       humanReadable() %...>%
       valueBox("bandwidth consumed")
-  })
+  }) %>% cacheOutput(cacheKeyExpr = { c(date(), input$detail_ip_name) })
   
   output$detail_count <- renderValueBox({
     detail_downloads() %...>%
       nrow() %...>%
       format(big.mark = ",") %...>%
       valueBox("files downloaded")
-  })
+  }) %>% cacheOutput(cacheKeyExpr = { c(date(), input$detail_ip_name) })
   
   output$detail_uniques <- renderValueBox({
     detail_downloads() %...>%
@@ -66,10 +62,10 @@ detailView <- function(input, output, session, whales, whale_downloads) {
       length() %...>%
       format(big.mark = ",") %...>%
       valueBox("unique packages")
-  })
+  }) %>% cacheOutput(cacheKeyExpr = { c(date(), input$detail_ip_name) })
   
   # Show every single download from the selected downloader
-  output$detail <- renderPlot({
+  output$detail <- renderCachedPlot({
     
     validate(need(input$detail_ip_name, "Select a downloader from the list above"))
 
@@ -83,7 +79,7 @@ detailView <- function(input, output, session, whales, whale_downloads) {
         scale_y_discrete(breaks = pkg[seq(from = 1, to = length(pkg), length.out = 50) %>% as.integer() %>% c(1, length(pkg)) %>% unique()]) +
         ylab(glue("package ({length(pkg)} unique)"))
     }
-  })
+  }, cacheKeyExpr = { promise_resolve(c(date(), input$detail_ip_name)) })
   
   # Show the downloads that are brushed on output$detail
   output$detail_table <- renderDT({
@@ -95,5 +91,5 @@ detailView <- function(input, output, session, whales, whale_downloads) {
         size = humanReadable(size)
       ) %...>%
       select(-ip_id, -ip_name, -country)
-  })
+  }, server = FALSE) %>% cacheOutput(cacheKeyExpr = { c(date(), input$detail_ip_name, input$detail_brush) })
 }

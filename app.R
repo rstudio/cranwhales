@@ -13,15 +13,41 @@ library(future)
 # Leave one core for Shiny itself
 plan(multisession(workers = availableCores() - 1))
 
+shinyOptions(cache = diskCache("cache/data", max_size = 20e6))
+
 source("random-names.R")
 source("modules/detail.R")
+source("cacheutils.R")
+
+# 10GiB data cache
+download_data_cache <- shiny::diskCache("cache/download", max_size = 10 * 1024^3)
+download_data <- memoise_plus(cache = download_data_cache, function(date) {
+  validate(need(is.Date(date), "Invalid date"))
+  
+  year <- lubridate::year(date)
+  
+  url <- glue("http://cran-logs.rstudio.com/{year}/{date}.csv.gz")
+  path <- tempfile(fileext = ".csv.gz")
+  
+  p <- Progress$new()
+  p$set(value = NULL, message = "Downloading data...")
+  future({
+    download.file(url, path)
+  }) %...>%
+    { p$set(message = "Parsing data...") } %...>%
+    { future(read_csv(path, col_types = "Dti---c-ci", progress = FALSE)) } %>%
+    finally(~{
+      p$close()
+      unlink(path)
+    })
+})
 
 ui <- dashboardPage(
   dashboardHeader(
     title = "CRAN whales"
   ),
   dashboardSidebar(
-    dateInput("date", "Date", value = Sys.Date() - 3),
+    dateInput("date", "Date", value = Sys.Date() - 4),
     numericInput("count", "Show top N downloaders:", 6)
   ),
   dashboardBody(
@@ -56,33 +82,7 @@ server <- function(input, output, session) {
   # Downloads data from cran-logs.rstudio.com, and parses it.
   # Successful downloads are stored in the data_cache dir.
   data <- eventReactive(input$date, ignoreNULL = FALSE, {
-    date <- input$date
-    validate(need(is.Date(date), "Invalid date"))
-    
-    year <- lubridate::year(date)
-    
-    url <- glue("http://cran-logs.rstudio.com/{year}/{date}.csv.gz")
-    path <- file.path("data_cache", paste0(date, ".csv.gz"))
-    
-    p <- Progress$new()
-    p$set(value = NULL, message = "Downloading data...")
-    future({
-      # Download to a temporary file path, then rename to the real
-      # path when the download is complete. We do this so other
-      # processes/sessions don't use partially downloaded files.
-      if (!file.exists(path)) {
-        tmppath <- paste0(path, "-", Sys.getpid())
-        download.file(url, tmppath)
-        if (!file.exists(path)) {
-          file.rename(tmppath, path)
-        } else {
-          file.remove(tmppath)
-        }
-      }
-    }) %...>%
-      { p$set(message = "Parsing data...") } %...>%
-      { future(read_csv(path, col_types = "Dti---c-ci", progress = FALSE)) } %>%
-      finally(~p$close())
+    download_data(input$date)
   })
   
   # Returns a data frame of just the top `input$count` downloaders of the day,
@@ -129,14 +129,14 @@ server <- function(input, output, session) {
       sum() %...>%
       humanReadable() %...>%
       valueBox("bandwidth consumed")
-  })
+  }) %>% cacheOutput(cacheKeyExpr = { input$date })
   
   output$total_count <- renderValueBox({
     data() %...>%
       nrow() %...>%
       format(big.mark = ",") %...>%
       valueBox("files downloaded")
-  })
+  }) %>% cacheOutput(cacheKeyExpr = { input$date })
   
   output$total_uniques <- renderValueBox({
     data() %...>%
@@ -145,8 +145,8 @@ server <- function(input, output, session) {
       length() %...>%
       format(big.mark = ",") %...>%
       valueBox("unique packages")
-  })
-  
+  }) %>% cacheOutput(cacheKeyExpr = { input$date })
+    
   output$total_downloaders <- renderValueBox({
     data() %...>%
       pull(ip_id) %...>%
@@ -154,9 +154,9 @@ server <- function(input, output, session) {
       length() %...>%
       format(big.mark = ",") %...>%
       valueBox("unique downloaders")
-  })
+  }) %>% cacheOutput(cacheKeyExpr = { input$date })
   
-  output$all_hour <- renderPlot({
+  output$all_hour <- renderCachedPlot({
     promise_all(data = data(), whales = whales()) %...>%
       with({
         whale_ip <- whales$ip_id
@@ -175,21 +175,21 @@ server <- function(input, output, session) {
           xlab("Hour") +
           scale_y_continuous(labels = scales::comma)
       })
-  })
+  }, cacheKeyExpr = { promise_resolve(c(input$date, input$count)) })
   
   #### "Biggest whales" tab -------------------------------------
   
-  output$downloaders <- renderPlot({
+  output$downloaders <- renderCachedPlot({
     whales() %...>% {
       ggplot(., aes(ip_name, n)) +
       geom_bar(stat = "identity") +
       ylab("Downloads on this day")
     }
-  })
+  }, cacheKeyExpr = { promise_resolve(c(input$date, input$count)) })
   
   #### "Whales by hour" tab -------------------------------------
   
-  output$downloaders_hour <- renderPlot({
+  output$downloaders_hour <- renderCachedPlot({
     whale_downloads() %...>%
       mutate(time = hms::trunc_hms(time, 60*60)) %...>%
       count(time, ip_name) %...>% {
@@ -199,11 +199,12 @@ server <- function(input, output, session) {
           ylab("Downloads") +
           xlab("Hour")
       }
-  })
+  }, cacheKeyExpr = { promise_resolve(c(input$date, input$count)) })
   
   #### "Detail view" tab ----------------------------------------
 
-  callModule(detailView, "details", whales, whale_downloads)
+  callModule(detailView, "details", reactive(input$date),
+    reactive(input$count), whales, whale_downloads)
 }
 
 shinyApp(ui, server)
