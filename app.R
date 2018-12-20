@@ -118,7 +118,7 @@ server <- function(input, output, session) {
       valueBox("unique downloaders")
   })
   
-  output$all_hour <- renderPlot({
+  output$all_hour <- renderCachedPlot({
     whale_ip <- whales()$ip_id
     
     hourly_summary() %>%
@@ -129,16 +129,16 @@ server <- function(input, output, session) {
       ylab("Downloads") +
       xlab("Hour") +
       scale_y_continuous(labels = scales::comma)
-  })
+  }, cacheKeyExpr = { whales() })
   
   #### "Biggest whales" tab -------------------------------------
   
-  output$downloaders <- renderPlot({
+  output$downloaders <- renderCachedPlot({
     whales() %>%
       ggplot(aes(ip_name, n)) +
       geom_bar(stat = "identity") +
       ylab("Downloads on this day")
-  })
+  }, cacheKeyExpr = { whales() })
   
   #### "Whales by hour" tab -------------------------------------
   
@@ -151,7 +151,7 @@ server <- function(input, output, session) {
       facet_wrap(~ip_name) +
       ylab("Downloads") +
       xlab("Hour")
-  }, cacheKeyExpr = { list(input$date, nrow(whale_downloads())) })
+  }, cacheKeyExpr = { whales() })
   
   #### "Detail view" tab ----------------------------------------
 
