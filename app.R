@@ -7,6 +7,7 @@ library(DT)
 library(glue)
 library(lubridate)
 library(gdata)  # for gdata::humanReadable
+library(feather)
 
 source("random-names.R")
 source("modules/detail.R")
@@ -48,39 +49,15 @@ server <- function(input, output, session) {
   
   ### Reactive expressions ============================================
   
-  # Downloads data from cran-logs.rstudio.com, and parses it.
-  # Successful downloads are stored in the data_cache dir.
-  data <- eventReactive(input$date, ignoreNULL = FALSE, {
-    date <- input$date
-    validate(need(is.Date(date), "Invalid date"))
+  feather_data <- function(filename) {
+    req(input$date)
     
-    year <- lubridate::year(date)
+    filepath <- file.path("cache/feather", input$date, filename)
+    validate(need(file.exists(filepath), "Sorry, data is not available for the requested date"))
     
-    url <- glue("http://cran-logs.rstudio.com/{year}/{date}.csv.gz")
-    path <- file.path("data_cache", paste0(date, ".csv.gz"))
-    
-    withProgress(value = NULL, {
-      
-      # Download to a temporary file path, then rename to the real
-      # path when the download is complete. We do this so other
-      # processes/sessions don't use partially downloaded files.
-      if (!file.exists(path)) {
-        tmppath <- paste0(path, "-", Sys.getpid())
-        setProgress(message = "Downloading data...")
-        download.file(url, tmppath)
-        if (!file.exists(path)) {
-          file.rename(tmppath, path)
-        } else {
-          file.remove(tmppath)
-        }
-      }
-      
-      setProgress(message = "Parsing data...")
-      read_csv(path, col_types = "Dti---c-ci", progress = FALSE) %>%
-        filter(!is.na(package))
-    })
-  })
-  
+    read_feather(filepath)
+  }
+
   # Returns a data frame of just the top `input$count` downloaders of the day,
   # with the columns: 
   # ip_id - an arbitrary integer that's used in place of the real IP address
@@ -91,60 +68,50 @@ server <- function(input, output, session) {
     validate(
       need(is.numeric(input$count), "Invalid top downloader count"),
       need(input$count > 0, "Too few downloaders"),
-      need(input$count <= 25, "Too many downloaders; 25 or fewer please")
+      need(input$count <= 12, "Too many downloaders; 12 or fewer please")
     )
-    data() %>%
-      count(ip_id, country) %>%
-      arrange(desc(n)) %>%
-      head(input$count) %>%
-      mutate(ip_name = factor(ip_id, levels = ip_id,
-        labels = glue("{random_name(length(ip_id), input$date)} [{country}]"))) %>%
-      select(-country)
+
+    feather_data("whale_info.feather") %>%
+      head(input$count)
   })
   
   # data(), filtered down to the downloads that are by the top `input$count`
   # downloaders
   whale_downloads <- reactive({
-    data() %>%
-      inner_join(whales(), "ip_id") %>%
-      select(-n)
+    feather_data("whale_downloads.feather") %>%
+      filter(ip_id %in% whales()$ip_id)
   })
 
+  hourly_summary <- reactive({
+    feather_data("hourly_summary.feather") %>%
+      mutate(is_whale = !is.na(whale_index) & whale_index <= input$count) %>%
+      group_by(hour, is_whale) %>%
+      summarise(size = sum(size), n = sum(n)) %>%
+      arrange(hour, is_whale)
+  })
+
+  daily_summary <- reactive({
+    feather_data("daily_summary.feather")
+  })
   
   ### Outputs =========================================================
   
   #### "All traffic" tab ----------------------------------------
   
   output$total_size <- renderValueBox({
-    data() %>%
-      pull(size) %>%
-      as.numeric() %>%  # Cast from integer to numeric to avoid overflow warning
-      sum() %>%
+    daily_summary()$total_size %>%
       humanReadable() %>%
       valueBox("bandwidth consumed")
   })
   
   output$total_count <- renderValueBox({
-    data() %>%
-      nrow() %>%
+    daily_summary()$total_count %>%
       format(big.mark = ",") %>%
       valueBox("files downloaded")
   })
   
-  output$total_uniques <- renderValueBox({
-    data() %>%
-      pull(package) %>%
-      unique() %>%
-      length() %>%
-      format(big.mark = ",") %>%
-      valueBox("unique packages")
-  })
-  
   output$total_downloaders <- renderValueBox({
-    data() %>%
-      pull(ip_id) %>%
-      unique() %>%
-      length() %>%
+    daily_summary()$unique_downloaders %>%
       format(big.mark = ",") %>%
       valueBox("unique downloaders")
   })
@@ -152,13 +119,8 @@ server <- function(input, output, session) {
   output$all_hour <- renderPlot({
     whale_ip <- whales()$ip_id
     
-    data() %>%
-      mutate(
-        time = hms::trunc_hms(time, 60*60),
-        is_whale = ip_id %in% whale_ip
-      ) %>%
-      count(time, is_whale) %>%
-      ggplot(aes(time, n, fill = is_whale)) +
+    hourly_summary() %>%
+      ggplot(aes(hour, n, fill = is_whale)) +
       geom_bar(stat = "identity") +
       scale_fill_manual(values = c("#666666", "#88FF99"),
         labels = c("no", "yes")) +
