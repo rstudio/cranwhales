@@ -65,7 +65,7 @@ detailView <- function(input, output, session, whales, whale_downloads) {
   })
   
   # Show every single download from the selected downloader
-  output$detail <- renderPlot({
+  output$detail <- renderCachedPlot({
     
     validate(need(input$detail_ip_name, "Select a downloader from the list above"))    
     pkg <- levels(detail_downloads()$package)
@@ -78,7 +78,7 @@ detailView <- function(input, output, session, whales, whale_downloads) {
         scale_y_discrete(breaks = pkg[seq(from = 1, to = length(pkg), length.out = 50) %>% as.integer() %>% c(1, length(pkg)) %>% unique()]) +
         ylab(glue("package ({length(pkg)} unique)"))
     }
-  })
+  }, cacheKeyExpr = { list(head(detail_downloads(), 1)) })
   
   # Show the downloads that are brushed on output$detail
   output$detail_table <- renderDT({

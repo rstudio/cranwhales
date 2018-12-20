@@ -9,6 +9,8 @@ library(lubridate)
 library(gdata)  # for gdata::humanReadable
 library(feather)
 
+shinyOptions(cache = diskCache("cache/shiny"))
+
 source("random-names.R")
 source("modules/detail.R")
 
@@ -140,7 +142,7 @@ server <- function(input, output, session) {
   
   #### "Whales by hour" tab -------------------------------------
   
-  output$downloaders_hour <- renderPlot({
+  output$downloaders_hour <- renderCachedPlot({
     whale_downloads() %>%
       mutate(time = hms::trunc_hms(time, 60*60)) %>%
       count(time, ip_name) %>%
@@ -149,7 +151,7 @@ server <- function(input, output, session) {
       facet_wrap(~ip_name) +
       ylab("Downloads") +
       xlab("Hour")
-  })
+  }, cacheKeyExpr = { list(input$date, nrow(whale_downloads())) })
   
   #### "Detail view" tab ----------------------------------------
 
