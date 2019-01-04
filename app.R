@@ -21,7 +21,7 @@ ui <- dashboardPage(
   ),
   dashboardBody(
     fluidRow(
-      tabBox(width = 12,
+      tabBox(id = "tab", width = 12,
         tabPanel("All traffic",
           fluidRow(
             valueBoxOutput("total_size", width = 4),
@@ -76,8 +76,8 @@ server <- function(input, output, session) {
       }
       
       setProgress(message = "Parsing data...")
-      read_csv(path, col_types = "Dti---c-ci", progress = FALSE)
-      
+      read_csv(path, col_types = "Dti---c-ci", progress = FALSE) %>%
+        filter(!is.na(package))
     })
   })
   
