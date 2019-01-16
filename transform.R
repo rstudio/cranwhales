@@ -11,6 +11,18 @@ MAX_WHALES <- 12
 
 source("random-names.R")
 
+download_log <- function(date, output_dir) {
+  stopifnot(length(date) == 1)
+  
+  filename <- paste0(strftime(date, "%Y-%m-%d"), ".csv.gz")
+  url <- paste0("http://cran-logs.rstudio.com/", year(date), "/", filename)
+  path <- file.path(output_dir, filename)
+  if (file.exists(path)) {
+    unlink(path)
+  }
+  download.file(url, path)
+}
+
 read_logfile <- function(path) {
   df <- read_csv(path, col_types = "Dti---c-ci", progress = FALSE)
   df %>% filter(!is.na(package))
@@ -83,12 +95,25 @@ process_date <- function(date, output_dir) {
   })
 }
 
-dates <- commandArgs(TRUE)
-if (length(dates) == 0) {
-  dates <- as.character(Sys.Date() - 1)
-}
-
-for (date in dates) {
-  message(date)
-  process_date(date, "cache/feather")
+if (!interactive()) {
+  # Last two weeks
+  dates <- strftime(Sys.Date() - 1:14, "%Y-%m-%d")
+  dates <- dates[!dir.exists(file.path("cache/feather", dates))]
+  
+  if (length(dates) == 0) {
+    message("Already up-to-date.")
+  }
+  
+  for (date in dates) {
+    message(date)
+    tryCatch({
+      download_log(date, "data_cache")
+      process_date(date, "cache/feather")
+    }, error = function(e) {
+      warning(e)
+      unlink(file.path("cache/feather", date), recursive = TRUE)
+    }, interrupt = function(e) {
+      unlink(file.path("cache/feather", date), recursive = TRUE)
+    })
+  }
 }
