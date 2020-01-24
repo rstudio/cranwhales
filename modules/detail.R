@@ -2,10 +2,10 @@ detailViewUI <- function(id) {
   ns <- NS(id)
   tagList(
     selectInput(ns("detail_ip_name"), "Downloader name", character(0)),
-    fluidRow(
-      valueBoxOutput(ns("detail_size")),
-      valueBoxOutput(ns("detail_count")),
-      valueBoxOutput(ns("detail_uniques"))
+    fluidRow(class = "mb-3",
+      infoBoxOutput(ns("detail_size")),
+      infoBoxOutput(ns("detail_count")),
+      infoBoxOutput(ns("detail_uniques"))
     ),
     plotOutput(ns("detail"),
       brush = brushOpts(ns("detail_brush"), resetOnNew = TRUE)
@@ -39,29 +39,29 @@ detailView <- function(input, output, session, whales, whale_downloads) {
       mutate(package = factor(package, levels = rev(unique(package)), ordered = TRUE))
   })
   
-  output$detail_size <- renderValueBox({
+  output$detail_size <- renderInfoBox({
     detail_downloads() %>%
       pull(size) %>%
       as.numeric() %>%  # Cast from integer to numeric to avoid overflow warning
       sum() %>% 
       humanReadable() %>%
-      valueBox("bandwidth consumed")
+      infoBox("bandwidth consumed")
   })
   
-  output$detail_count <- renderValueBox({
+  output$detail_count <- renderInfoBox({
     detail_downloads() %>%
       nrow() %>%
       format(big.mark = ",") %>%
-      valueBox("files downloaded")
+      infoBox("files downloaded")
   })
   
-  output$detail_uniques <- renderValueBox({
+  output$detail_uniques <- renderInfoBox({
     detail_downloads() %>%
       pull(package) %>%
       unique() %>%
       length() %>%
       format(big.mark = ",") %>%
-      valueBox("unique packages")
+      infoBox("unique packages")
   })
   
   # Show every single download from the selected downloader

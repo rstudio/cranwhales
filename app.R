@@ -1,5 +1,4 @@
 library(shiny)
-library(shinydashboard)
 library(readr)
 library(dplyr)
 library(ggplot2)
@@ -8,47 +7,62 @@ library(glue)
 library(lubridate)
 library(gdata)  # for gdata::humanReadable
 library(feather)
+library(bootstraplib)
 
 shinyOptions(cache = diskCache("cache/shiny"))
 
-source("random-names.R")
-source("modules/detail.R")
+bs_theme_new()
 
-ui <- dashboardPage(
-  dashboardHeader(
-    title = "CRAN whales"
+source("random-names.R", local = TRUE)
+source("modules/infobox.R", local = TRUE)
+source("modules/detail.R", local = TRUE)
+
+ui <- bootstrapPage(
+  bootstraplib::bootstrap(),
+  includeCSS("styles.css"),
+  h1(class = "text-center mt-2", "CRAN whales"),
+  div(class = "container-fluid",
+    fluidRow(class = "bg-secondary text-light py-3 my-3",
+      column(3, offset = 3, dateInput("date", "Date:", value = Sys.Date() - 3)),
+      column(3, numericInput("count", "Show top N downloaders:", 6))
+    )
   ),
-  dashboardSidebar(
-    dateInput("date", "Date", value = Sys.Date() - 3),
-    numericInput("count", "Show top N downloaders:", 6)
+  div(class = "container",
+    tabsetPanel(id = "tab", type = "pill",
+      tabPanel("All traffic", class = "pt-3",
+        fluidRow(class = "mb-3",
+          infoBoxOutput("total_size", width = 4),
+          infoBoxOutput("total_count", width = 4),
+          infoBoxOutput("total_downloaders", width = 4)
+        ),
+        plotOutput("all_hour")
+      ),
+      tabPanel("Biggest whales", class = "pt-3",
+        plotOutput("downloaders", height = 500)
+      ),
+      tabPanel("Whales by hour", class = "pt-3",
+        plotOutput("downloaders_hour", height = 500)
+      ),
+      tabPanel("Detail view", class = "pt-3",
+        detailViewUI("details")
+      )
+    )
   ),
-  dashboardBody(
+  tags$footer(class = "mt-5 p-3 container-fluid",
     fluidRow(
-      tabBox(id = "tab", width = 12,
-        tabPanel("All traffic",
-          fluidRow(
-            valueBoxOutput("total_size", width = 4),
-            valueBoxOutput("total_count", width = 4),
-            valueBoxOutput("total_downloaders", width = 4)
-          ),
-          plotOutput("all_hour")
-        ),
-        tabPanel("Biggest whales",
-          plotOutput("downloaders", height = 500)
-        ),
-        tabPanel("Whales by hour",
-          plotOutput("downloaders_hour", height = 500)
-        ),
-        tabPanel("Detail view",
-          detailViewUI("details")
-        )
+      column(6,
+        HTML("&copy;"),
+        "2020 RStudio, PBC"
+      ),
+      column(6, class = "text-right",
+        "Source:",
+        tags$a(href = "https://cran-logs.rstudio.com", "cran-logs.rstudio.com")
       )
     )
   )
 )
 
 server <- function(input, output, session) {
-  
   ### Reactive expressions ============================================
   
   feather_data <- function(filename) {
@@ -100,22 +114,22 @@ server <- function(input, output, session) {
   
   #### "All traffic" tab ----------------------------------------
   
-  output$total_size <- renderValueBox({
+  output$total_size <- renderInfoBox({
     daily_summary()$total_size %>%
       humanReadable() %>%
-      valueBox("bandwidth consumed")
+      infoBox("bandwidth consumed")
   })
   
-  output$total_count <- renderValueBox({
+  output$total_count <- renderInfoBox({
     daily_summary()$total_count %>%
       format(big.mark = ",") %>%
-      valueBox("files downloaded")
+      infoBox("files downloaded")
   })
   
-  output$total_downloaders <- renderValueBox({
+  output$total_downloaders <- renderInfoBox({
     daily_summary()$unique_downloaders %>%
       format(big.mark = ",") %>%
-      valueBox("unique downloaders")
+      infoBox("unique downloaders")
   })
   
   output$all_hour <- renderCachedPlot({
