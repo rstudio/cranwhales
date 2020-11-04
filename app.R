@@ -7,18 +7,15 @@ library(glue)
 library(lubridate)
 library(gdata)  # for gdata::humanReadable
 library(feather)
-library(bootstraplib)
 
 shinyOptions(cache = diskCache("cache/shiny"))
-
-bs_theme_new()
 
 source("random-names.R", local = TRUE)
 source("modules/infobox.R", local = TRUE)
 source("modules/detail.R", local = TRUE)
 
 ui <- bootstrapPage(
-  bootstraplib::bootstrap(),
+  theme = bslib::bs_theme(),
   includeCSS("styles.css"),
   h1(class = "text-center mt-2", "CRAN whales"),
   div(class = "container-fluid",
