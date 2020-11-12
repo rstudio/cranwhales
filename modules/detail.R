@@ -22,12 +22,19 @@ detailView <- function(input, output, session, whales, whale_downloads) {
       whales()$ip_name,
       error = function(err) { character(0) }
     )
+    
+    if (is.null(input$detail_ip_name)) {
+      selected <- character()
+    } else if (!input$detail_ip_name %in% choices) {
+      selected <- character()
+    } else {
+      selected <- input$detail_ip_name
+    }
+
     updateSelectInput(session, "detail_ip_name",
-      choices = choices,
-      selected = if (input$detail_ip_name %in% choices)
-        input$detail_ip_name
-      else
-        character(0))
+      choices = choices, 
+      selected = selected,
+    )
     freezeReactiveValue(input, "detail_ip_name")
   })
   
